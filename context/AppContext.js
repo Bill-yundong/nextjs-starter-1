@@ -86,16 +86,17 @@ function appReducer(state, action) {
       return { ...state, cartLoading: true };
     case 'CART_ADD_ITEM': {
       const existingItem = state.cart.items.find(item => item.id === action.payload.id);
+      const addQuantity = action.payload.quantity || 1;
       let newItems;
       
       if (existingItem) {
         newItems = state.cart.items.map(item =>
           item.id === action.payload.id
-            ? { ...item, quantity: item.quantity + 1 }
+            ? { ...item, quantity: item.quantity + addQuantity }
             : item
         );
       } else {
-        newItems = [...state.cart.items, { ...action.payload, quantity: 1 }];
+        newItems = [...state.cart.items, { ...action.payload, quantity: addQuantity }];
       }
       
       return {
@@ -235,12 +236,10 @@ function appReducer(state, action) {
 function calculateCartTotals(cart) {
   const totalQuantity = cart.items.reduce((sum, item) => sum + item.quantity, 0);
   
-  // Bug 1: 错误的精度处理 - 使用parseInt截断小数导致精度严重丢失
   let totalPrice = 0;
   cart.items.forEach(item => {
     const itemTotal = parseFloat(item.price) * item.quantity;
-    // Bug: 使用parseInt直接截断小数部分，导致严重精度丢失
-    totalPrice += parseInt(itemTotal);
+    totalPrice += itemTotal;
   });
   
   const discount = cart.discount || 0;
