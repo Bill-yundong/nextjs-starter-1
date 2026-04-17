@@ -46,11 +46,6 @@ const initialState = {
   sidebarOpen: false,
 };
 
-// Bug 7: 全局变量存储购物车状态，导致竞态条件
-// 使用模块级变量模拟"数据库"状态
-let pendingCartUpdates = [];
-let isProcessingCart = false;
-
 // Reducer
 function appReducer(state, action) {
   switch (action.type) {
@@ -104,32 +99,7 @@ function appReducer(state, action) {
         cartLoading: false,
       };
     }
-    // Bug 7: 新增一个专门用于竞态条件的action
-    case 'CART_ADD_ITEM_WITH_STALE_STATE': {
-      // Bug: 使用action中携带的过时状态进行更新
-      // 当快速点击时，所有请求都携带相同的初始状态，导致更新丢失
-      const { staleItems, newItem } = action.payload;
-      
-      const existingItem = staleItems.find(item => item.id === newItem.id);
-      let newItems;
-      
-      if (existingItem) {
-        // 基于过时的staleItems进行更新
-        newItems = staleItems.map(item =>
-          item.id === newItem.id
-            ? { ...item, quantity: item.quantity + 1 }
-            : item
-        );
-      } else {
-        newItems = [...staleItems, { ...newItem, quantity: 1 }];
-      }
-      
-      return {
-        ...state,
-        cart: calculateCartTotals({ ...state.cart, items: newItems }),
-        cartLoading: false,
-      };
-    }
+
     case 'CART_REMOVE_ITEM': {
       const newItems = state.cart.items.filter(item => item.id !== action.payload);
       return {
@@ -235,12 +205,12 @@ function appReducer(state, action) {
 function calculateCartTotals(cart) {
   const totalQuantity = cart.items.reduce((sum, item) => sum + item.quantity, 0);
   
-  // Bug 1: 错误的精度处理 - 使用parseInt截断小数导致精度严重丢失
+  // 修复: 使用精确的小数计算，避免精度丢失
   let totalPrice = 0;
   cart.items.forEach(item => {
     const itemTotal = parseFloat(item.price) * item.quantity;
-    // Bug: 使用parseInt直接截断小数部分，导致严重精度丢失
-    totalPrice += parseInt(itemTotal);
+    // 修复: 直接累加浮点数，不使用parseInt截断
+    totalPrice += itemTotal;
   });
   
   const discount = cart.discount || 0;
