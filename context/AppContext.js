@@ -46,6 +46,11 @@ const initialState = {
   sidebarOpen: false,
 };
 
+// Bug 7: 全局变量存储购物车状态，导致竞态条件
+// 使用模块级变量模拟"数据库"状态
+let pendingCartUpdates = [];
+let isProcessingCart = false;
+
 // Reducer
 function appReducer(state, action) {
   switch (action.type) {
@@ -82,6 +87,7 @@ function appReducer(state, action) {
     case 'CART_ADD_ITEM': {
       const existingItem = state.cart.items.find(item => item.id === action.payload.id);
       let newItems;
+      
       if (existingItem) {
         newItems = state.cart.items.map(item =>
           item.id === action.payload.id
@@ -91,6 +97,33 @@ function appReducer(state, action) {
       } else {
         newItems = [...state.cart.items, { ...action.payload, quantity: 1 }];
       }
+      
+      return {
+        ...state,
+        cart: calculateCartTotals({ ...state.cart, items: newItems }),
+        cartLoading: false,
+      };
+    }
+    // Bug 7: 新增一个专门用于竞态条件的action
+    case 'CART_ADD_ITEM_WITH_STALE_STATE': {
+      // Bug: 使用action中携带的过时状态进行更新
+      // 当快速点击时，所有请求都携带相同的初始状态，导致更新丢失
+      const { staleItems, newItem } = action.payload;
+      
+      const existingItem = staleItems.find(item => item.id === newItem.id);
+      let newItems;
+      
+      if (existingItem) {
+        // 基于过时的staleItems进行更新
+        newItems = staleItems.map(item =>
+          item.id === newItem.id
+            ? { ...item, quantity: item.quantity + 1 }
+            : item
+        );
+      } else {
+        newItems = [...staleItems, { ...newItem, quantity: 1 }];
+      }
+      
       return {
         ...state,
         cart: calculateCartTotals({ ...state.cart, items: newItems }),
@@ -201,7 +234,15 @@ function appReducer(state, action) {
 // 计算购物车总价
 function calculateCartTotals(cart) {
   const totalQuantity = cart.items.reduce((sum, item) => sum + item.quantity, 0);
-  const totalPrice = cart.items.reduce((sum, item) => sum + (parseFloat(item.price) * item.quantity), 0);
+  
+  // Bug 1: 错误的精度处理 - 使用parseInt截断小数导致精度严重丢失
+  let totalPrice = 0;
+  cart.items.forEach(item => {
+    const itemTotal = parseFloat(item.price) * item.quantity;
+    // Bug: 使用parseInt直接截断小数部分，导致严重精度丢失
+    totalPrice += parseInt(itemTotal);
+  });
+  
   const discount = cart.discount || 0;
   const finalPrice = Math.max(0, totalPrice - discount);
   

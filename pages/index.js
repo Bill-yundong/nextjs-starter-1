@@ -58,9 +58,25 @@ export default function Home() {
     dispatch({ type: 'CLEAR_FILTERS' });
   };
 
-  const handleAddToCart = (product) => {
+  // Bug 7: 使用闭包陷阱捕获过时的购物车状态
+  const handleAddToCart = async (product) => {
     dispatch({ type: 'CART_START' });
-    dispatch({ type: 'CART_ADD_ITEM', payload: product });
+    
+    // Bug: 在异步开始前捕获当前状态（可能过时）
+    const staleCartItems = JSON.parse(JSON.stringify(state.cart.items));
+    
+    // Bug: 模拟API延迟
+    await new Promise(resolve => setTimeout(resolve, 300));
+    
+    // Bug: 使用过时的staleCartItems进行更新
+    // 当快速点击时，所有并发调用都使用最初捕获的状态
+    dispatch({ 
+      type: 'CART_ADD_ITEM_WITH_STALE_STATE', 
+      payload: { 
+        staleItems: staleCartItems,  // 过时的状态
+        newItem: product 
+      } 
+    });
     dispatch({
       type: 'ADD_NOTIFICATION',
       payload: { type: 'success', message: `Added ${product.name} to cart!` }
