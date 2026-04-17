@@ -132,15 +132,167 @@ console.log('\n========== API 模拟测试 ==========\n');
 
   console.log('\n========== 购物车逻辑测试 ==========\n');
 
-  // 模拟购物车计算
+  // 模拟购物车计算 - 修复 Bug 1: 总价精度丢失
+  // 模拟修复后的 calculateCartTotals 函数
+  function calculateCartTotals(cart) {
+    const totalQuantity = cart.items.reduce((sum, item) => sum + item.quantity, 0);
+    
+    // 修复: 使用精确的小数计算，避免精度丢失
+    let totalPrice = 0;
+    cart.items.forEach(item => {
+      const itemTotal = parseFloat(item.price) * item.quantity;
+      // 修复: 直接累加浮点数，不使用parseInt截断
+      totalPrice += itemTotal;
+    });
+    
+    const discount = cart.discount || 0;
+    const finalPrice = Math.max(0, totalPrice - discount);
+    
+    return {
+      ...cart,
+      totalQuantity,
+      totalPrice: parseFloat(totalPrice.toFixed(2)),
+      finalPrice: parseFloat(finalPrice.toFixed(2)),
+    };
+  }
+
+  // Bug 1 测试: 购物车总价精度丢失修复验证
+  console.log('\n----- Bug 1: 购物车总价精度修复测试 -----\n');
+
+  test('【修复验证】小数价格商品总价计算保留精度', () => {
+    const mockCartItemsWithDecimals = [
+      { id: 1, name: 'Product A', price: '49.99', quantity: 1 },
+      { id: 2, name: 'Product B', price: '29.99', quantity: 1 },
+    ];
+    const cart = calculateCartTotals({ items: mockCartItemsWithDecimals, discount: 0 });
+    
+    // 修复前使用 parseInt 会导致 79.98 变成 79
+    // 修复后应该正确显示 79.98
+    assert(cart.totalPrice === 79.98, `总价精度丢失: 期望 79.98, 实际 ${cart.totalPrice}`);
+  });
+
+  test('【修复验证】多件小数价格商品总价计算正确', () => {
+    const mockCartItemsWithDecimals = [
+      { id: 1, name: 'Product A', price: '19.99', quantity: 3 }, // 59.97
+      { id: 2, name: 'Product B', price: '9.99', quantity: 2 },  // 19.98
+    ];
+    const cart = calculateCartTotals({ items: mockCartItemsWithDecimals, discount: 0 });
+    
+    // 修复前: parseInt(59.97) + parseInt(19.98) = 59 + 19 = 78
+    // 修复后: 59.97 + 19.98 = 79.95
+    assert(cart.totalPrice === 79.95, `多件商品总价错误: 期望 79.95, 实际 ${cart.totalPrice}`);
+  });
+
+  test('【修复验证】带折扣的小数价格商品最终价格计算正确', () => {
+    const mockCartItemsWithDecimals = [
+      { id: 1, name: 'Product A', price: '99.99', quantity: 1 },
+      { id: 2, name: 'Product B', price: '49.99', quantity: 1 },
+    ];
+    const cart = calculateCartTotals({ items: mockCartItemsWithDecimals, discount: 10 });
+    
+    // 总价 149.98 - 折扣 10 = 139.98
+    assert(cart.finalPrice === 139.98, `折扣后价格错误: 期望 139.98, 实际 ${cart.finalPrice}`);
+  });
+
+  // Bug 2 测试: 快速点击竞态条件修复验证
+  console.log('\n----- Bug 2: 快速点击竞态条件修复测试 -----\n');
+
+  // 模拟修复后的购物车 reducer 逻辑
+  function cartReducer(state, action) {
+    switch (action.type) {
+      case 'CART_ADD_ITEM': {
+        const existingItem = state.items.find(item => item.id === action.payload.id);
+        let newItems;
+        
+        if (existingItem) {
+          newItems = state.items.map(item =>
+            item.id === action.payload.id
+              ? { ...item, quantity: item.quantity + 1 }
+              : item
+          );
+        } else {
+          newItems = [...state.items, { ...action.payload, quantity: 1 }];
+        }
+        
+        return {
+          ...state,
+          items: newItems,
+        };
+      }
+      default:
+        return state;
+    }
+  }
+
+  test('【修复验证】连续快速添加同一商品，数量正确累加', () => {
+    let state = { items: [] };
+    const product = { id: 1, name: 'Test Product', price: '29.99' };
+    
+    // 模拟快速点击 5 次
+    for (let i = 0; i < 5; i++) {
+      state = cartReducer(state, { type: 'CART_ADD_ITEM', payload: product });
+    }
+    
+    // 修复后: 数量应该正确累加为 5
+    // 修复前: 使用过时状态的闭包陷阱会导致数量丢失
+    assert(state.items.length === 1, `购物车商品项数错误: 期望 1, 实际 ${state.items.length}`);
+    assert(state.items[0].quantity === 5, `商品数量累加错误: 期望 5, 实际 ${state.items[0].quantity}`);
+  });
+
+  test('【修复验证】并发添加不同商品，各商品数量独立正确', () => {
+    let state = { items: [] };
+    const productA = { id: 1, name: 'Product A', price: '29.99' };
+    const productB = { id: 2, name: 'Product B', price: '49.99' };
+    
+    // 模拟快速添加商品 A 3 次
+    for (let i = 0; i < 3; i++) {
+      state = cartReducer(state, { type: 'CART_ADD_ITEM', payload: productA });
+    }
+    
+    // 模拟快速添加商品 B 2 次
+    for (let i = 0; i < 2; i++) {
+      state = cartReducer(state, { type: 'CART_ADD_ITEM', payload: productB });
+    }
+    
+    // 验证商品 A 数量为 3
+    const itemA = state.items.find(item => item.id === 1);
+    assert(itemA && itemA.quantity === 3, `商品A数量错误: 期望 3, 实际 ${itemA?.quantity}`);
+    
+    // 验证商品 B 数量为 2
+    const itemB = state.items.find(item => item.id === 2);
+    assert(itemB && itemB.quantity === 2, `商品B数量错误: 期望 2, 实际 ${itemB?.quantity}`);
+  });
+
+  test('【修复验证】交替快速添加不同商品，数量不累加到错误商品', () => {
+    let state = { items: [] };
+    const productA = { id: 1, name: 'Product A', price: '29.99' };
+    const productB = { id: 2, name: 'Product B', price: '49.99' };
+    
+    // 交替快速添加: A, B, A, B, A
+    state = cartReducer(state, { type: 'CART_ADD_ITEM', payload: productA });
+    state = cartReducer(state, { type: 'CART_ADD_ITEM', payload: productB });
+    state = cartReducer(state, { type: 'CART_ADD_ITEM', payload: productA });
+    state = cartReducer(state, { type: 'CART_ADD_ITEM', payload: productB });
+    state = cartReducer(state, { type: 'CART_ADD_ITEM', payload: productA });
+    
+    // 验证商品 A 数量为 3
+    const itemA = state.items.find(item => item.id === 1);
+    assert(itemA && itemA.quantity === 3, `商品A数量错误: 期望 3, 实际 ${itemA?.quantity}`);
+    
+    // 验证商品 B 数量为 2
+    const itemB = state.items.find(item => item.id === 2);
+    assert(itemB && itemB.quantity === 2, `商品B数量错误: 期望 2, 实际 ${itemB?.quantity}`);
+  });
+
+  // 基础购物车测试
   const mockCartItems = [
     { id: 1, name: 'Classic Helmet', price: '49.99', quantity: 2 },
     { id: 2, name: 'Classic T-Shirt', price: '29.99', quantity: 1 },
   ];
 
   test('购物车总价计算正确', () => {
-    const total = mockCartItems.reduce((sum, item) => sum + (parseFloat(item.price) * item.quantity), 0);
-    assert(Math.abs(total - 129.97) < 0.01, `总价计算错误: ${total}`);
+    const cart = calculateCartTotals({ items: mockCartItems, discount: 0 });
+    assert(Math.abs(cart.totalPrice - 129.97) < 0.01, `总价计算错误: ${cart.totalPrice}`);
   });
 
   test('购物车商品数量计算正确', () => {

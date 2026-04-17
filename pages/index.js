@@ -58,24 +58,15 @@ export default function Home() {
     dispatch({ type: 'CLEAR_FILTERS' });
   };
 
-  // Bug 7: 使用闭包陷阱捕获过时的购物车状态
+  // 修复: 使用函数式更新避免闭包陷阱
   const handleAddToCart = async (product) => {
     dispatch({ type: 'CART_START' });
     
-    // Bug: 在异步开始前捕获当前状态（可能过时）
-    const staleCartItems = JSON.parse(JSON.stringify(state.cart.items));
-    
-    // Bug: 模拟API延迟
-    await new Promise(resolve => setTimeout(resolve, 300));
-    
-    // Bug: 使用过时的staleCartItems进行更新
-    // 当快速点击时，所有并发调用都使用最初捕获的状态
+    // 修复: 使用标准的CART_ADD_ITEM action，让reducer基于最新状态更新
+    // 避免在异步操作前捕获状态，防止竞态条件
     dispatch({ 
-      type: 'CART_ADD_ITEM_WITH_STALE_STATE', 
-      payload: { 
-        staleItems: staleCartItems,  // 过时的状态
-        newItem: product 
-      } 
+      type: 'CART_ADD_ITEM', 
+      payload: product 
     });
     dispatch({
       type: 'ADD_NOTIFICATION',
